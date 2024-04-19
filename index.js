@@ -6,39 +6,33 @@ const app = express();
 const port = process.env.PORT || 8080;
 
 app.get('/api/upload', async (req, res) => {
-    const { link } = req.query;
+    const { link, title } = req.query;
 
     if (!link) {
         return res.status(400).send('Link parameter is missing');
     }
 
     try {
-        // Validate if the link is a valid YouTube link
         if (!ytdl.validateURL(link)) {
             return res.status(400).send('Invalid YouTube link');
         }
 
-        // Get video info
         const info = await ytdl.getInfo(link);
 
-        // Generate safe file name from video title
-        const fileName = sanitize(info.videoDetails.title.replace(/\s+/g, '_')) + '.mp3';
+        
+        const fileName = title ? sanitize(title.replace(/\s+/g, '_')) + '.mp3' : sanitize(info.videoDetails.title.replace(/\s+/g, '_')) + '.mp3';
 
-        // Download the audio as an MP3 file
         const audioStream = ytdl.downloadFromInfo(info, {
             format: 'mp3',
         });
 
-        // Write the audio stream to disk
         const filePath = `${__dirname}/${fileName}`;
         const fileWriteStream = fs.createWriteStream(filePath);
 
         audioStream.pipe(fileWriteStream);
 
         fileWriteStream.on('finish', () => {
-            // Redirect to the /files endpoint after downloading
-            const redirectUrl = `/files?src=${encodeURIComponent(fileName)}`;
-            res.redirect(redirectUrl);
+            res.json({ src: fileName });
         });
 
     } catch (error) {
@@ -55,7 +49,6 @@ app.get('/files', (req, res) => {
     }
 
     try {
-        // Set response headers for the file
         res.setHeader('Content-Type', 'audio/mpeg');
         res.setHeader('Content-Disposition', `inline; filename=${src}`);
 
