@@ -1,12 +1,18 @@
 const express = require('express');
+const axios = require('axios');
 const ytdl = require('ytdl-core');
 const sanitize = require('sanitize-filename');
-const fs = require('fs');
+const fs = require('fs').promises;
 const app = express();
-const port = 8080;
+const port = process.env.PORT || 8080;
+
+let library = [];
+
+app.use(express.static('public'));
+app.use(express.json());
 
 app.get('/api/upload', async (req, res) => {
-    const { link, title } = req.query;
+    const { link } = req.query;
 
     if (!link) {
         return res.status(400).send('Link parameter is missing');
@@ -18,26 +24,25 @@ app.get('/api/upload', async (req, res) => {
         }
 
         const info = await ytdl.getInfo(link);
+        const title = sanitize(info.videoDetails.title.replace(/\s+/g, '_'));
 
-        
-        const fileName = title ? sanitize(title.replace(/\s+/g, '_')) + '.mp3' : sanitize(info.videoDetails.title.replace(/\s+/g, '_')) + '.mp3';
-
-        const audioStream = ytdl.downloadFromInfo(info, {
-            format: 'mp3',
+        const response = await axios.get(`https://deku-rest-api.replit.app/ytdl?url=${link}&type=mp4`, {
+            responseType: 'arraybuffer'
         });
 
+        const fileName = `${title}.mp3`;
         const filePath = `${__dirname}/${fileName}`;
-        const fileWriteStream = fs.createWriteStream(filePath);
 
-        audioStream.pipe(fileWriteStream);
+        await fs.writeFile(filePath, Buffer.from(response.data, 'binary'));
 
-        fileWriteStream.on('finish', () => {
-            res.json({ src: fileName });
-        });
+        library.push({ link, title });
+        await fs.writeFile(`${__dirname}/library.json`, JSON.stringify(library, null, 2));
+
+        res.json({ src: fileName });
 
     } catch (error) {
-        console.error('Error downloading YouTube audio:', error);
-        res.status(500).send('Error downloading YouTube audio');
+        console.error('Error downloading YouTube video:', error);
+        res.status(500).send('Error downloading YouTube video');
     }
 });
 
@@ -49,18 +54,28 @@ app.get('/files', (req, res) => {
     }
 
     try {
-        res.setHeader('Content-Type', 'audio/mpeg');
+        res.setHeader('Content-Type', 'video/mp4');
         res.setHeader('Content-Disposition', `inline; filename=${src}`);
 
-        // Stream the audio file to the response
         const filePath = `${__dirname}/${src}`;
-        const audioStream = fs.createReadStream(filePath);
+        const videoStream = fs.createReadStream(filePath);
 
-        audioStream.pipe(res);
+        videoStream.pipe(res);
 
     } catch (error) {
-        console.error('Error serving YouTube audio:', error);
-        res.status(500).send('Error serving YouTube audio');
+        console.error('Error serving YouTube video:', error);
+        res.status(500).send('Error serving YouTube video');
+    }
+});
+
+app.get('/api/library', async (req, res) => {
+    try {
+        const data = await fs.readFile(`${__dirname}/library.json`, 'utf8');
+        library = JSON.parse(data);
+        res.json(library);
+    } catch (error) {
+        console.error('Error reading library:', error);
+        res.status(500).send('Error reading library');
     }
 });
 
